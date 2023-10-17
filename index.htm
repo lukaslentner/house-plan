@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="de">
+<head>
+
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#2a94eb">
+
+<title>Hausplan</title>
+
+<style>
+
+	.wall {
+		cursor: pointer;
+	}
+
+	.wall:hover {
+	}
+
+</style>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/two.js/0.6.0/two.js" integrity="sha512-W0ockU9uJb2FKECn272Xuyj3y0Uzb5ozzkyLMZli+ETNgra6BGzwBng+8xkNoSab5TOiaZkaByAj5Wn7kcFNCg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>
+
+	const Vector = function(x, y) {
+		this.x = x;
+		this.y = y;
+		this.length = Math.sqrt(Math.pow(this.x, 2) + Math.pow(this.y, 2));
+		this.add = summand => {
+			return new Vector(this.x + summand.x, this.y + summand.y);
+		};
+		this.subtract = minuend => {
+			return new Vector(this.x - minuend.x, this.y - minuend.y);
+		};
+		this.times = factor => {
+			return new Vector(this.x * factor, this.y * factor);
+		};
+		this.normalize = () => {
+			return new Vector(this.x / this.length, this.y / this.length);
+		};
+		this.toString = () => {
+			return '[' + this.x + ';' + this.y + ']';
+		};
+	};
+
+	const U = new Vector(0, -1);
+	const D = new Vector(0, 1);
+	const L = new Vector(-1, 0);
+	const R = new Vector(1, 0);
+
+	const House = function() {
+		this.floors = [];
+	};
+
+	const Floor = function(house, title) {
+		this.house = house;
+		this.house.floors.push(this);
+		this.title = title;
+		this.rooms = [];
+		this.parse = ctx => {
+			this.shape = new Two.Group();
+			this.rooms.forEach(room => {
+				const roomShape = room.parse(ctx);
+				roomShape.addTo(this.shape);
+			});
+			return this.shape;
+		};
+	};
+
+	const Room = function(floor, title, referenceCorner) {
+		this.floor = floor;
+		this.floor.rooms.push(this);
+		this.title = title;
+		this.referenceCorner = referenceCorner;
+		this.walls = [];
+		this.nextWallStart = new Vector(0, 0);
+		this.addWall = (direction, length) => {
+			if(this.nextWallStart === null) {
+				throw new Error('Room walls have been already finalized');
+			}
+			const nextWallEnd = this.nextWallStart.add(direction.times(length));
+			const wall = new Wall(this, this.nextWallStart, nextWallEnd, nextWallEnd);
+			this.nextWallStart = nextWallEnd;
+			return this;
+		};
+		this.addFinalWall = (direction, length) => {
+			if(this.nextWallStart === null) {
+				throw new Error('Room walls have been already finalized');
+			}
+			const nextWallEnd = this.nextWallStart.add(direction.times(length));
+			const wall = new Wall(this, this.nextWallStart, new Vector(0, 0), nextWallEnd);
+			this.nextWallStart = null;
+			return this;
+		};
+		this.getNewReferenceCorner = (startWallIndex, dx, dy) => {
+			return this.referenceCorner.add(this.walls[startWallIndex].start).add(new Vector(dx || 0, dy || 0));
+		};
+		this.parse = ctx => {
+			this.shape = new Two.Group();
+			this.shape.translation = new Two.Vector(this.referenceCorner.x * ctx.factor, this.referenceCorner.y * ctx.factor);
+			this.walls.forEach(wall => {
+				const wallShape = wall.parse(ctx);
+				wallShape.addTo(this.shape);
+			});
+			return this.shape;
+		};
+	};
+
+	const Wall = function(room, start, end, measuredEnd) {
+		const linewidth = 0.04;
+		if(end.x !== measuredEnd.x || end.y !== measuredEnd.y) {
+			console.info('Wall end is %s, but was actually measured as %s', end.toString(), measuredEnd.toString());
+		}
+		this.room = room;
+		this.room.walls.push(this);
+		this.start = start;
+		this.end = end;
+		this.direction = this.end.subtract(this.start).normalize();
+		this.measuredEnd = measuredEnd;
+		this.measuredDirection = this.measuredEnd.subtract(this.start).normalize();
+		this.parse = ctx => {
+			this.shape = new Two.Line(this.start.x * ctx.factor, this.start.y * ctx.factor, this.end.x * ctx.factor, this.end.y * ctx.factor);
+			this.shape.linewidth = linewidth * ctx.factor;
+			this.shape.cap = 'square';
+			this.shape.classList.push('wall');
+			ctx.afterUpdate.push(two => {
+				this.shape._renderer.elem.classList.add('wall');
+				this.shape._renderer.elem.addEventListener('mouseover', e => {
+					this.shape.linewidth = linewidth * 2 * ctx.factor;
+					two.render();
+				}, false);
+				this.shape._renderer.elem.addEventListener('mouseout', e => {
+					this.shape.linewidth = linewidth * ctx.factor;
+					two.render();
+				}, false);
+			});
+			return this.shape;
+		};
+	};
+
+	/*const Door = function(floor, wall1, until1, after1, wall2, until2, after2) {
+		//const linewidth = 0.04;
+		this.floor = floor;
+		this.floor.doors.push(this);
+		this.wall1 = wall1;
+		this.until1 = until1;
+		this.after1 = after1;
+		this.wall2 = wall2;
+		this.until2 = until2;
+		this.after2 = after2;
+		this.parse = ctx => {
+			const origin = wall1.start.add(wall1.direction.times(until1));
+			const until1Vector = wall1.start.add(wall1.direction.times(until1));
+			const after1Vector = wall1.start.add(wall1.direction.times(after1));
+			const until2Vector = wall2.start.add(wall2.direction.times(until2));
+			const after2Vector = wall2.start.add(wall2.direction.times(after2));
+			this.shape = new Two.Group();
+			this.shape.translation = new Two.Vector(this.origin.x * ctx.factor, this.origin.y * ctx.factor);
+			const wallCut = ...
+
+
+			this.shape = new Two.Line(this.start.x * ctx.factor, this.start.y * ctx.factor, this.end.x * ctx.factor, this.end.y * ctx.factor);
+			this.shape.linewidth = linewidth * ctx.factor;
+			this.shape.cap = 'square';
+			this.shape.classList.push('wall');
+			ctx.afterUpdate.push(two => {
+				this.shape._renderer.elem.classList.add('wall');
+				this.shape._renderer.elem.addEventListener('mouseover', e => {
+					this.shape.linewidth = linewidth * 2 * ctx.factor;
+					two.render();
+				}, false);
+				this.shape._renderer.elem.addEventListener('mouseout', e => {
+					this.shape.linewidth = linewidth * ctx.factor;
+					two.render();
+				}, false);
+			});
+			return this.shape;
+		};
+	};*/
+
+	const createHouse = () => {
+
+		const house = new House();
+
+		const floor0 = new Floor(house, 'Erdgeschoss');
+
+		const room0 = new Room(floor0, 'Anbau 1', new Vector(0, 0));
+		room0
+			.addWall(U, 5.258)
+			.addWall(L, 2.665)
+			.addWall(D, 5.258)
+			.addFinalWall(R, 2.665);
+
+		const room1 = new Room(floor0, 'Anbau 2', room0.getNewReferenceCorner(3, 0, 0.4));
+		room1
+			.addWall(D, 2.822)
+			.addWall(R, 3.313)
+			.addWall(U, 1.440)
+			.addWall(R, 2.072)
+			.addWall(U, 1.356)
+			.addFinalWall(L, 5.366);
+
+		const room2 = new Room(floor0, 'Anbau Treppenhaus', room1.getNewReferenceCorner(2, 0.144, 0));
+		room2
+			.addWall(R, 1.928)
+			.addWall(U, 1.291)
+			.addWall(L, 1.928)
+			.addFinalWall(D, 1.291);
+
+		//const door0 = new Door(floor0, room0.walls[3], 1.165, 2.031, room1.walls[5], 3.365, 4.220);
+
+		return house;
+
+	};
+
+	window.addEventListener('DOMContentLoaded', e => {
+
+		var two = new Two({
+			fullscreen: true
+		}).appendTo(document.getElementById('canvas'));
+
+		const house = createHouse();
+
+		const parseContext = {
+			factor: 80,
+			afterUpdate: []
+		};
+		const floor0Shape = house.floors[0].parse(parseContext);
+		floor0Shape.translation = new Two.Vector(800, 800);
+		floor0Shape.addTo(two);
+
+		two.update();
+
+		parseContext.afterUpdate.forEach(action => action(two));
+		
+	});
+
+</script>
+
+</head>
+<body>
+
+<div id="canvas"></div>
+
+</body>
+</html>
